@@ -1256,19 +1256,42 @@ server.addTool({
     try {
       const drive = google.drive({ version: 'v3', auth: authClient! });
 
+      // First, get the current comment content (required by the API)
+      const currentComment = await drive.comments.get({
+        fileId: args.documentId,
+        commentId: args.commentId,
+        fields: 'content'
+      });
+
+      // Update with both content and resolved status
       await drive.comments.update({
         fileId: args.documentId,
         commentId: args.commentId,
+        fields: 'id,resolved',
         requestBody: {
+          content: currentComment.data.content,
           resolved: true
         }
       });
 
-      return `Comment ${args.commentId} has been resolved.`;
+      // Verify the resolved status was set
+      const verifyComment = await drive.comments.get({
+        fileId: args.documentId,
+        commentId: args.commentId,
+        fields: 'resolved'
+      });
+
+      if (verifyComment.data.resolved) {
+        return `Comment ${args.commentId} has been marked as resolved.`;
+      } else {
+        return `Attempted to resolve comment ${args.commentId}, but the resolved status may not persist in the Google Docs UI due to API limitations. The comment can be resolved manually in the Google Docs interface.`;
+      }
 
     } catch (error: any) {
       log.error(`Error resolving comment: ${error.message || error}`);
-      throw new UserError(`Failed to resolve comment: ${error.message || 'Unknown error'}`);
+      const errorDetails = error.response?.data?.error?.message || error.message || 'Unknown error';
+      const errorCode = error.response?.data?.error?.code;
+      throw new UserError(`Failed to resolve comment: ${errorDetails}${errorCode ? ` (Code: ${errorCode})` : ''}`);
     }
   }
 });
