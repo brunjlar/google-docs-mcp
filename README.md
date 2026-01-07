@@ -69,6 +69,43 @@ This comprehensive server uses the Model Context Protocol (MCP) and the `fastmcp
 
 ---
 
+## Write Allowlist (Optional, Recommended)
+
+By default, the server can modify any file you can access. To restrict writes, configure a write allowlist. Read operations remain available for your entire Drive, but any write operation will be blocked unless the target file (or one of its ancestor folders) is allowlisted.
+
+You can configure allowlisted file/folder IDs in one of two ways:
+
+**Environment variable**
+
+`GOOGLE_DRIVE_WRITE_ALLOWLIST` accepts either:
+- A comma/newline-separated list of IDs
+- JSON (array or object)
+
+Examples:
+```
+export GOOGLE_DRIVE_WRITE_ALLOWLIST="folderId123,fileId456"
+```
+
+```
+export GOOGLE_DRIVE_WRITE_ALLOWLIST='{"folders":["folderId123"],"files":["fileId456"]}'
+```
+
+**JSON file**
+
+Set `GOOGLE_DRIVE_WRITE_ALLOWLIST_PATH` to a JSON file path:
+```
+{
+  "folders": ["folderId123"],
+  "files": ["fileId456"]
+}
+```
+
+Notes:
+- If the allowlist is configured but empty or invalid, **all write operations are blocked**.
+- For writes that default to Drive root (no `parentFolderId`), include `root` in the allowlist to permit them.
+
+---
+
 ## Prerequisites
 
 Before you start, make sure you have:

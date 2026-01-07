@@ -4,6 +4,12 @@ import { z } from 'zod';
 import { google, docs_v1, drive_v3, sheets_v4 } from 'googleapis';
 import { authorize } from './auth.js';
 import { OAuth2Client } from 'google-auth-library';
+import {
+  assertWriteAccessForFile,
+  assertWriteAccessForParent,
+  assertWriteAccessForParents,
+  getWriteAllowlistSummary
+} from './writeAccess.js';
 
 // Import types and helpers
 import {
@@ -109,6 +115,19 @@ if (!sheets) {
 throw new UserError("Google Sheets client is not initialized. Authentication might have failed during startup or lost connection.");
 }
 return sheets;
+}
+
+// --- Helper to enforce write allowlist ---
+async function requireWriteAccessForFile(fileId: string, actionDescription: string) {
+  const drive = await getDriveClient();
+  await assertWriteAccessForFile(drive, fileId, actionDescription);
+  return drive;
+}
+
+async function requireWriteAccessForParent(parentId: string | undefined, actionDescription: string) {
+  const drive = await getDriveClient();
+  await assertWriteAccessForParent(drive, parentId, actionDescription);
+  return drive;
 }
 
 // === HELPER FUNCTIONS ===
@@ -520,6 +539,7 @@ addNewlineIfNeeded: z.boolean().optional().default(true).describe("Automatically
 tabId: z.string().optional().describe('The ID of the specific tab to append to. If not specified, appends to the first tab (or legacy document.body for documents without tabs).')
 }),
 execute: async (args, { log }) => {
+await requireWriteAccessForFile(args.documentId, 'append to document');
 const docs = await getDocsClient();
 log.info(`Appending to Google Doc: ${args.documentId}${args.tabId ? ` (tab: ${args.tabId})` : ''}`);
 
@@ -592,6 +612,7 @@ index: z.number().int().min(1).describe('The index (1-based) where the text shou
 tabId: z.string().optional().describe('The ID of the specific tab to insert into. If not specified, inserts into the first tab (or legacy document.body for documents without tabs).')
 }),
 execute: async (args, { log }) => {
+await requireWriteAccessForFile(args.documentId, 'insert text into document');
 const docs = await getDocsClient();
 log.info(`Inserting text in doc ${args.documentId} at index ${args.index}${args.tabId ? ` (tab: ${args.tabId})` : ''}`);
 try {
@@ -639,6 +660,7 @@ parameters: DocumentIdParameter.extend({
   path: ["endIndex"],
 }),
 execute: async (args, { log }) => {
+await requireWriteAccessForFile(args.documentId, 'delete content in document');
 const docs = await getDocsClient();
 log.info(`Deleting range ${args.startIndex}-${args.endIndex} in doc ${args.documentId}${args.tabId ? ` (tab: ${args.tabId})` : ''}`);
 if (args.endIndex <= args.startIndex) {
@@ -686,6 +708,7 @@ name: 'applyTextStyle',
 description: 'Applies character-level formatting (bold, color, font, etc.) to a specific range or found text.',
 parameters: ApplyTextStyleToolParameters,
 execute: async (args: ApplyTextStyleToolArgs, { log }) => {
+await requireWriteAccessForFile(args.documentId, 'apply text style in document');
 const docs = await getDocsClient();
 let { startIndex, endIndex } = args.target as any; // Will be updated if target is text
 
@@ -734,6 +757,7 @@ name: 'applyParagraphStyle',
 description: 'Applies paragraph-level formatting (alignment, spacing, named styles like Heading 1) to the paragraph(s) containing specific text, an index, or a range.',
 parameters: ApplyParagraphStyleToolParameters,
 execute: async (args: ApplyParagraphStyleToolArgs, { log }) => {
+await requireWriteAccessForFile(args.documentId, 'apply paragraph style in document');
 const docs = await getDocsClient();
 let startIndex: number | undefined;
 let endIndex: number | undefined;
@@ -846,6 +870,7 @@ columns: z.number().int().min(1).describe('Number of columns for the new table.'
 index: z.number().int().min(1).describe('The index (1-based) where the table should be inserted.'),
 }),
 execute: async (args, { log }) => {
+await requireWriteAccessForFile(args.documentId, 'insert table in document');
 const docs = await getDocsClient();
 log.info(`Inserting ${args.rows}x${args.columns} table in doc ${args.documentId} at index ${args.index}`);
 try {
@@ -874,6 +899,7 @@ paragraphStyle: ParagraphStyleParameters.optional().describe("Optional: Paragrap
 // cellBackgroundColor: z.string().optional()... // Cell-specific styles are complex
 }),
 execute: async (args, { log }) => {
+await requireWriteAccessForFile(args.documentId, 'edit table cell in document');
 const docs = await getDocsClient();
 log.info(`Editing cell (${args.rowIndex}, ${args.columnIndex}) in table starting at ${args.tableStartIndex}, doc ${args.documentId}`);
 
@@ -900,6 +926,7 @@ parameters: DocumentIdParameter.extend({
 index: z.number().int().min(1).describe('The index (1-based) where the page break should be inserted.'),
 }),
 execute: async (args, { log }) => {
+await requireWriteAccessForFile(args.documentId, 'insert page break in document');
 const docs = await getDocsClient();
 log.info(`Inserting page break in doc ${args.documentId} at index ${args.index}`);
 try {
@@ -930,6 +957,7 @@ width: z.number().min(1).optional().describe('Optional: Width of the image in po
 height: z.number().min(1).optional().describe('Optional: Height of the image in points.'),
 }),
 execute: async (args, { log }) => {
+await requireWriteAccessForFile(args.documentId, 'insert image in document');
 const docs = await getDocsClient();
 log.info(`Inserting image from URL ${args.imageUrl} at index ${args.index} in doc ${args.documentId}`);
 
@@ -970,6 +998,7 @@ uploadToSameFolder: z.boolean().optional().default(true).describe('If true, uplo
 execute: async (args, { log }) => {
 const docs = await getDocsClient();
 const drive = await getDriveClient();
+await assertWriteAccessForFile(drive, args.documentId, 'insert local image into document');
 log.info(`Uploading local image ${args.localImagePath} and inserting at index ${args.index} in doc ${args.documentId}`);
 
 try {
@@ -991,6 +1020,7 @@ log.warn(`Could not determine document's parent folder, using Drive root: ${fold
 }
 
 // Upload the image to Drive
+await assertWriteAccessForParent(drive, parentFolderId, 'upload image to Drive');
 log.info(`Uploading image to Drive...`);
 const imageUrl = await GDocsHelpers.uploadImageToDrive(
 drive,
@@ -1033,6 +1063,7 @@ parameters: DocumentIdParameter.extend({
 range: OptionalRangeParameters.optional().describe("Optional: Limit the fixing process to a specific range.")
 }),
 execute: async (args, { log }) => {
+await requireWriteAccessForFile(args.documentId, 'fix list formatting in document');
 const docs = await getDocsClient();
 log.warn(`Executing EXPERIMENTAL fixListFormatting for doc ${args.documentId}. Range: ${JSON.stringify(args.range)}`);
 try {
@@ -1167,6 +1198,7 @@ server.addTool({
     log.info(`Adding comment to range ${args.startIndex}-${args.endIndex} in doc ${args.documentId}`);
 
     try {
+      await requireWriteAccessForFile(args.documentId, 'add comment to document');
       // First, get the text content that will be quoted
       const docsClient = await getDocsClient();
       const doc = await docsClient.documents.get({ documentId: args.documentId });
@@ -1240,6 +1272,7 @@ server.addTool({
     log.info(`Adding reply to comment ${args.commentId} in doc ${args.documentId}`);
 
     try {
+      await requireWriteAccessForFile(args.documentId, 'reply to comment in document');
       const drive = google.drive({ version: 'v3', auth: authClient! });
 
       const response = await drive.replies.create({
@@ -1270,6 +1303,7 @@ server.addTool({
     log.info(`Resolving comment ${args.commentId} in doc ${args.documentId}`);
 
     try {
+      await requireWriteAccessForFile(args.documentId, 'resolve comment in document');
       const drive = google.drive({ version: 'v3', auth: authClient! });
 
       // First, get the current comment content (required by the API)
@@ -1322,6 +1356,7 @@ server.addTool({
     log.info(`Deleting comment ${args.commentId} from doc ${args.documentId}`);
 
     try {
+      await requireWriteAccessForFile(args.documentId, 'delete comment from document');
       const drive = google.drive({ version: 'v3', auth: authClient! });
 
       await drive.comments.delete({
@@ -1390,6 +1425,7 @@ parameters: z.object({
 }),
 execute: async (args, { log }) => {
   // Adapt to use the new applyTextStyle implementation under the hood
+  await requireWriteAccessForFile(args.documentId, 'format matching text in document');
   const docs = await getDocsClient();
   log.info(`Using formatMatchingText (legacy) for doc ${args.documentId}, target: "${args.textToFind}" (instance ${args.matchInstance})`);
 
@@ -1669,7 +1705,7 @@ parameters: z.object({
   parentFolderId: z.string().optional().describe('Parent folder ID. If not provided, creates folder in Drive root.'),
 }),
 execute: async (args, { log }) => {
-const drive = await getDriveClient();
+const drive = await requireWriteAccessForParent(args.parentFolderId, 'create folder');
 log.info(`Creating folder "${args.name}" ${args.parentFolderId ? `in parent ${args.parentFolderId}` : 'in root'}`);
 
 try {
@@ -1854,6 +1890,8 @@ parameters: z.object({
 }),
 execute: async (args, { log }) => {
 const drive = await getDriveClient();
+await assertWriteAccessForFile(drive, args.fileId, 'move file');
+await assertWriteAccessForParent(drive, args.newParentId, 'move file to destination');
 log.info(`Moving file ${args.fileId} to folder ${args.newParentId}`);
 
 try {
@@ -1907,15 +1945,17 @@ try {
     fileId: args.fileId,
     fields: 'name,parents',
   });
+  const destinationParents = args.parentFolderId
+    ? [args.parentFolderId]
+    : (originalFile.data.parents || []);
+  await assertWriteAccessForParents(drive, destinationParents, 'copy file');
 
   const copyMetadata: drive_v3.Schema$File = {
     name: args.newName || `Copy of ${originalFile.data.name}`,
   };
 
-  if (args.parentFolderId) {
-    copyMetadata.parents = [args.parentFolderId];
-  } else if (originalFile.data.parents) {
-    copyMetadata.parents = originalFile.data.parents;
+  if (destinationParents.length > 0) {
+    copyMetadata.parents = destinationParents;
   }
 
   const response = await drive.files.copy({
@@ -1943,7 +1983,7 @@ parameters: z.object({
   newName: z.string().min(1).describe('New name for the file or folder.'),
 }),
 execute: async (args, { log }) => {
-const drive = await getDriveClient();
+const drive = await requireWriteAccessForFile(args.fileId, 'rename file');
 log.info(`Renaming file ${args.fileId} to "${args.newName}"`);
 
 try {
@@ -1974,7 +2014,7 @@ parameters: z.object({
   skipTrash: z.boolean().optional().default(false).describe('If true, permanently deletes the file. If false, moves to trash (can be restored).'),
 }),
 execute: async (args, { log }) => {
-const drive = await getDriveClient();
+const drive = await requireWriteAccessForFile(args.fileId, 'delete file');
 log.info(`Deleting file ${args.fileId} ${args.skipTrash ? '(permanent)' : '(to trash)'}`);
 
 try {
@@ -2021,7 +2061,7 @@ parameters: z.object({
   initialContent: z.string().optional().describe('Initial text content to add to the document.'),
 }),
 execute: async (args, { log }) => {
-const drive = await getDriveClient();
+const drive = await requireWriteAccessForParent(args.parentFolderId, 'create document');
 log.info(`Creating new document "${args.title}"`);
 
 try {
@@ -2088,6 +2128,19 @@ const drive = await getDriveClient();
 log.info(`Creating document from template ${args.templateId} with title "${args.newTitle}"`);
 
 try {
+  let destinationParents: string[] | undefined;
+  if (args.parentFolderId) {
+    destinationParents = [args.parentFolderId];
+  } else {
+    const templateInfo = await drive.files.get({
+      fileId: args.templateId,
+      fields: 'parents',
+    });
+    destinationParents = templateInfo.data.parents || [];
+  }
+
+  await assertWriteAccessForParents(drive, destinationParents, 'create document from template');
+
   // First copy the template
   const copyMetadata: drive_v3.Schema$File = {
     name: args.newTitle,
@@ -2199,6 +2252,7 @@ parameters: z.object({
     .describe('How input data should be interpreted. RAW: values are stored as-is. USER_ENTERED: values are parsed as if typed by a user.'),
 }),
 execute: async (args, { log }) => {
+  await requireWriteAccessForFile(args.spreadsheetId, 'write to spreadsheet');
   const sheets = await getSheetsClient();
   log.info(`Writing to spreadsheet ${args.spreadsheetId}, range: ${args.range}`);
 
@@ -2235,6 +2289,7 @@ parameters: z.object({
     .describe('How input data should be interpreted. RAW: values are stored as-is. USER_ENTERED: values are parsed as if typed by a user.'),
 }),
 execute: async (args, { log }) => {
+  await requireWriteAccessForFile(args.spreadsheetId, 'append rows to spreadsheet');
   const sheets = await getSheetsClient();
   log.info(`Appending rows to spreadsheet ${args.spreadsheetId}, starting at: ${args.range}`);
 
@@ -2268,6 +2323,7 @@ parameters: z.object({
   range: z.string().describe('A1 notation range to clear (e.g., "A1:B10" or "Sheet1!A1:B10").'),
 }),
 execute: async (args, { log }) => {
+  await requireWriteAccessForFile(args.spreadsheetId, 'clear spreadsheet range');
   const sheets = await getSheetsClient();
   log.info(`Clearing range ${args.range} in spreadsheet ${args.spreadsheetId}`);
 
@@ -2332,6 +2388,7 @@ parameters: z.object({
   sheetTitle: z.string().min(1).describe('Title for the new sheet/tab.'),
 }),
 execute: async (args, { log }) => {
+  await requireWriteAccessForFile(args.spreadsheetId, 'add sheet to spreadsheet');
   const sheets = await getSheetsClient();
   log.info(`Adding sheet "${args.sheetTitle}" to spreadsheet ${args.spreadsheetId}`);
 
@@ -2361,7 +2418,7 @@ parameters: z.object({
   initialData: z.array(z.array(z.any())).optional().describe('Optional initial data to populate in the first sheet. Each inner array represents a row.'),
 }),
 execute: async (args, { log }) => {
-  const drive = await getDriveClient();
+  const drive = await requireWriteAccessForParent(args.parentFolderId, 'create spreadsheet');
   const sheets = await getSheetsClient();
   log.info(`Creating new spreadsheet "${args.title}"`);
 
@@ -2472,6 +2529,7 @@ async function startServer() {
 try {
 await initializeGoogleClient(); // Authorize BEFORE starting listeners
 console.error("Starting Ultimate Google Docs & Sheets MCP server...");
+console.error(getWriteAllowlistSummary());
 
       // Using stdio as before
       const configToUse = {
