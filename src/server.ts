@@ -1,4 +1,5 @@
 // src/server.ts
+import './slowBufferShim.js';
 import { FastMCP, UserError } from 'fastmcp';
 import { z } from 'zod';
 import { google, docs_v1, drive_v3, sheets_v4 } from 'googleapis';

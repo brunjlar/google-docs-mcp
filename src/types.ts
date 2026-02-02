@@ -1,6 +1,6 @@
 // src/types.ts
 import { z } from 'zod';
-import { docs_v1 } from 'googleapis';
+import type { docs_v1 } from 'googleapis';
 
 // --- Helper function for hex color validation ---
 export const hexColorRegex = /^#?([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/;

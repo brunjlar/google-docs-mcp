@@ -1,4 +1,5 @@
 // src/googleSheetsApiHelpers.ts
+import './slowBufferShim.js';
 import { google, sheets_v4 } from 'googleapis';
 import { UserError } from 'fastmcp';
 
@@ -424,4 +425,3 @@ export function hexToRgb(hex: string): { red: number; green: number; blue: numbe
     blue: (bigint & 255) / 255,
   };
 }
-

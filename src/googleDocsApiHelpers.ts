@@ -1,4 +1,5 @@
 // src/googleDocsApiHelpers.ts
+import './slowBufferShim.js';
 import { google, docs_v1 } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
 import { UserError } from 'fastmcp';

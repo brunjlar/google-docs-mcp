@@ -208,6 +208,33 @@ Evidence:
 Next:
 - Share updated test result with user.
 
+2026-02-02 15:10 — Investigate runtime failure when running dist/server.js
+Plan:
+- Reproduce the failure with `node dist/server.js` and capture the error output.
+- Check current Node version and any runtime/engine constraints in `package.json`.
+- Trace failing module/stack to identify incompatibility or missing runtime config.
+- Apply minimal fix and rebuild if needed.
+Verify:
+- Re-run `node dist/server.js` after changes.
+- Run `npm run build` if code changes are made.
+Status:
+- OK
+Results:
+- Identified crash in `buffer-equal-constant-time` due to missing `buffer.SlowBuffer` in Node v25.
+- Added a `slowBufferShim` to polyfill `SlowBuffer` for CJS buffer consumers.
+- Loaded the shim before Google API dependencies to avoid startup crash.
+Verification:
+- `npm run build` (exit 0)
+- `timeout 2s node dist/server.js` (exit 124; server started and awaited client)
+Evidence:
+### 2026-02-02 15:14 — Verification Snapshot
+- Commands: `npm run build`, `timeout 2s node dist/server.js`
+- Exit codes: 0, 124
+- Logs (tail 20 lines): server started and awaiting client connection
+- Status: PASS
+Next:
+- Optional: run `node dist/server.js` without `timeout` when ready to connect a client.
+
 ---
 
 ## **Failed-Hypotheses Ledger**

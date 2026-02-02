@@ -1,4 +1,5 @@
 // src/auth.ts
+import './slowBufferShim.js';
 import { google } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
 import { JWT } from 'google-auth-library'; // ADDED: Import for Service Account client
